@@ -1,4 +1,5 @@
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from transformers import AutoModel, AutoTokenizer
 class OCRService:
     def __init__(self):
         self.model_name = "baidu/Unlimited-OCR"
+        self._inference_lock = threading.Lock()
 
         print("Loading Unlimited-OCR tokenizer...")
         self.tokenizer = AutoTokenizer.from_pretrained(
@@ -69,87 +71,83 @@ class OCRService:
     def process_image(self, image_path: Path, output_dir: Path) -> dict:
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        torch.cuda.reset_peak_memory_stats()
-        started = time.perf_counter()
+        with self._inference_lock:
+            torch.cuda.reset_peak_memory_stats()
+            started = time.perf_counter()
 
-        self.model.infer(
-            self.tokenizer,
-            prompt="<image>document parsing.",
-            image_file=str(image_path),
-            output_path=str(output_dir),
-            base_size=1024,
-            image_size=640,
-            crop_mode=True,
-            max_length=32768,
-            no_repeat_ngram_size=35,
-            ngram_window=128,
-            save_results=True,
-        )
+            self.model.infer(
+                self.tokenizer,
+                prompt="<image>document parsing.",
+                image_file=str(image_path),
+                output_path=str(output_dir),
+                base_size=1024,
+                image_size=640,
+                crop_mode=True,
+                max_length=32768,
+                no_repeat_ngram_size=35,
+                ngram_window=128,
+                save_results=True,
+            )
 
-        processing_time = time.perf_counter() - started
+            processing_time = time.perf_counter() - started
+            gpu = self.gpu_stats()
 
         return {
             "markdown": self._read_result(output_dir),
             "pages": 1,
             "processing_time_seconds": round(processing_time, 2),
-            "gpu": self.gpu_stats(),
+            "gpu": gpu,
         }
 
     def process_pdf(self, pdf_path: Path, output_dir: Path) -> dict:
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        image_paths = self._pdf_to_images(pdf_path)
+        with tempfile.TemporaryDirectory(prefix="ocrforge_pdf_") as temp_dir:
+            image_paths = self._pdf_to_images(pdf_path, Path(temp_dir))
 
-        print(f"PDF converted to {len(image_paths)} page(s)")
-        print("Running multi-page OCR...")
+            print(f"PDF converted to {len(image_paths)} page(s)")
+            print("Running multi-page OCR...")
 
-        torch.cuda.reset_peak_memory_stats()
-        started = time.perf_counter()
+            with self._inference_lock:
+                torch.cuda.reset_peak_memory_stats()
+                started = time.perf_counter()
 
-        self.model.infer_multi(
-            self.tokenizer,
-            prompt="<image>Multi page parsing.",
-            image_files=image_paths,
-            output_path=str(output_dir),
-            image_size=1024,
-            max_length=32768,
-            no_repeat_ngram_size=35,
-            ngram_window=1024,
-            save_results=True,
-        )
+                self.model.infer_multi(
+                    self.tokenizer,
+                    prompt="<image>Multi page parsing.",
+                    image_files=image_paths,
+                    output_path=str(output_dir),
+                    image_size=1024,
+                    max_length=32768,
+                    no_repeat_ngram_size=35,
+                    ngram_window=1024,
+                    save_results=True,
+                )
 
-        processing_time = time.perf_counter() - started
+                processing_time = time.perf_counter() - started
+                gpu = self.gpu_stats()
 
         return {
             "markdown": self._read_result(output_dir),
             "pages": len(image_paths),
             "processing_time_seconds": round(processing_time, 2),
-            "gpu": self.gpu_stats(),
+            "gpu": gpu,
         }
 
-    def _pdf_to_images(self, pdf_path: Path) -> list[str]:
+    @staticmethod
+    def _pdf_to_images(pdf_path: Path, temp_dir: Path) -> list[str]:
         document = fitz.open(str(pdf_path))
-
-        temp_dir = Path(
-            tempfile.mkdtemp(prefix="ocrforge_pdf_")
-        )
-
         matrix = fitz.Matrix(300 / 72, 300 / 72)
+        image_paths: list[str] = []
 
-        image_paths = []
-
-        for page_number, page in enumerate(document):
-            output_file = (
-                temp_dir /
-                f"page_{page_number + 1:04d}.png"
-            )
-
-            pixmap = page.get_pixmap(matrix=matrix)
-            pixmap.save(str(output_file))
-
-            image_paths.append(str(output_file))
-
-        document.close()
+        try:
+            for page_number, page in enumerate(document):
+                output_file = temp_dir / f"page_{page_number + 1:04d}.png"
+                pixmap = page.get_pixmap(matrix=matrix)
+                pixmap.save(str(output_file))
+                image_paths.append(str(output_file))
+        finally:
+            document.close()
 
         if not image_paths:
             raise RuntimeError("PDF contains no pages")
@@ -161,8 +159,6 @@ class OCRService:
         result_file = output_dir / "result.md"
 
         if not result_file.exists():
-            raise RuntimeError(
-                "OCR completed but result.md was not created"
-            )
+            raise RuntimeError("OCR completed but result.md was not created")
 
         return result_file.read_text(encoding="utf-8")
