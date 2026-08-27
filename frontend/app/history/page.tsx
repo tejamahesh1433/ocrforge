@@ -4,7 +4,9 @@ import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-const API_URL = "http://localhost:8001";
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL ||
+  "http://localhost:8001";
 
 type Job = {
   job_id: string;
@@ -23,6 +25,7 @@ type Job = {
   created_at: string | null;
   completed_at: string | null;
   markdown?: string | null;
+  document_url: string;
 };
 
 export default function HistoryPage() {
@@ -31,23 +34,45 @@ export default function HistoryPage() {
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
 
   async function loadJobs() {
     setLoading(true);
     setError("");
 
+    const params = new URLSearchParams();
+
+    if (search.trim()) {
+      params.set("search", search.trim());
+    }
+
+    if (typeFilter) {
+      params.set("document_type", typeFilter);
+    }
+
+    if (statusFilter) {
+      params.set("status", statusFilter);
+    }
+
     try {
-      const response = await fetch(`${API_URL}/api/jobs`);
+      const response = await fetch(
+        `${API_URL}/api/jobs?${params.toString()}`
+      );
 
       if (!response.ok) {
         throw new Error("Unable to load OCR history");
       }
 
       const data = await response.json();
+
       setJobs(data.jobs);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Unable to load history"
+        err instanceof Error
+          ? err.message
+          : "Unable to load history"
       );
     } finally {
       setLoading(false);
@@ -169,6 +194,50 @@ export default function HistoryPage() {
               </button>
             </div>
 
+            <div className="space-y-3 border-b border-slate-800 p-4">
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    loadJobs();
+                  }
+                }}
+                placeholder="Search filename or OCR text..."
+                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none"
+              />
+
+              <div className="grid grid-cols-2 gap-2">
+                <select
+                  value={typeFilter}
+                  onChange={(e) => setTypeFilter(e.target.value)}
+                  className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                >
+                  <option value="">All files</option>
+                  <option value="pdf">PDF</option>
+                  <option value="image">Images</option>
+                </select>
+
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                >
+                  <option value="">All status</option>
+                  <option value="completed">Completed</option>
+                  <option value="failed">Failed</option>
+                  <option value="processing">Processing</option>
+                </select>
+              </div>
+
+              <button
+                onClick={loadJobs}
+                className="w-full rounded-lg bg-white px-3 py-2 text-sm font-medium text-black"
+              >
+                Search
+              </button>
+            </div>
+
             <div className="max-h-[720px] overflow-auto">
               {loading ? (
                 <p className="p-6 text-slate-500">Loading history...</p>
@@ -286,20 +355,56 @@ export default function HistoryPage() {
                       {selectedJob.job_id.slice(0, 8)}
                     </span>
                   </div>
+                  
+                  <div className="mt-4 flex gap-2">
+                    <a
+                      href={`${API_URL}/api/jobs/${selectedJob.job_id}/download/md`}
+                      className="rounded-lg border border-slate-700 px-3 py-2 text-xs hover:bg-slate-800"
+                    >
+                      Download MD
+                    </a>
+
+                    <a
+                      href={`${API_URL}/api/jobs/${selectedJob.job_id}/download/txt`}
+                      className="rounded-lg border border-slate-700 px-3 py-2 text-xs hover:bg-slate-800"
+                    >
+                      Download TXT
+                    </a>
+                  </div>
                 </div>
 
-                <div className="max-h-[650px] overflow-auto bg-slate-950 p-6">
-                  {selectedJob.markdown ? (
-                    <article className="prose prose-invert max-w-none whitespace-pre-wrap">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {selectedJob.markdown.replace(/<\/?PAGE>/gi, "")}
-                      </ReactMarkdown>
-                    </article>
-                  ) : (
-                    <p className="text-slate-500">
-                      No OCR result stored for this job.
-                    </p>
-                  )}
+                <div className="grid min-h-[650px] lg:grid-cols-2">
+                  <div className="border-r border-slate-800 bg-slate-950 p-4">
+                    {selectedJob.document_type === "pdf" ? (
+                      <iframe
+                        src={`${API_URL}${selectedJob.document_url}`}
+                        className="h-[620px] w-full rounded-lg bg-white"
+                        title={selectedJob.filename}
+                      />
+                    ) : (
+                      <div className="flex h-[620px] items-center justify-center">
+                        <img
+                          src={`${API_URL}${selectedJob.document_url}`}
+                          alt={selectedJob.filename}
+                          className="max-h-full max-w-full object-contain"
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="max-h-[650px] overflow-auto bg-slate-950 p-6">
+                    {selectedJob.markdown ? (
+                      <article className="prose prose-invert max-w-none whitespace-pre-wrap">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {selectedJob.markdown.replace(/<\/?PAGE>/gi, "")}
+                        </ReactMarkdown>
+                      </article>
+                    ) : (
+                      <p className="text-slate-500">
+                        No OCR result stored for this job.
+                      </p>
+                    )}
+                  </div>
                 </div>
               </>
             )}

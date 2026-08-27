@@ -28,3 +28,13 @@ Thumbs.db
 
 # Logs
 *.log
+*.backup
+*.bak
+
+frontend/.env.local
+
+uploads/*
+outputs/*
+
+!uploads/.gitkeep
+!outputs/.gitkeep
