@@ -195,9 +195,18 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="flex items-center gap-2 rounded-full border border-emerald-900 bg-emerald-950 px-4 py-2 text-sm text-emerald-300">
-            <span className="h-2 w-2 rounded-full bg-emerald-400" />
-            {result?.gpu?.name ?? "GPU Ready"}
+          <div className="flex items-center gap-4">
+            <a
+              href="/history"
+              className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-white hover:bg-slate-800"
+            >
+              History
+            </a>
+
+            <div className="flex items-center gap-2 rounded-full border border-emerald-900 bg-emerald-950 px-4 py-2 text-sm text-emerald-300">
+              <span className="h-2 w-2 rounded-full bg-emerald-400" />
+              {result?.gpu?.name ?? "GPU Ready"}
+            </div>
           </div>
         </div>
       </header>
@@ -253,19 +262,25 @@ export default function Home() {
             ) : (
               <>
                 <div className="bg-slate-950 p-4">
-                  {file.type === "application/pdf" ? (
-                    <iframe
-                      src={previewUrl}
-                      title="PDF preview"
-                      className="h-[500px] w-full rounded-lg bg-white"
-                    />
-                  ) : (
-                    <div className="flex h-[500px] items-center justify-center">
-                      <img
+                  {previewUrl ? (
+                    file.type === "application/pdf" ? (
+                      <iframe
                         src={previewUrl}
-                        alt="Document preview"
-                        className="max-h-full max-w-full rounded-lg object-contain"
+                        title="PDF preview"
+                        className="h-[500px] w-full rounded-lg bg-white"
                       />
+                    ) : (
+                      <div className="flex h-[500px] items-center justify-center">
+                        <img
+                          src={previewUrl}
+                          alt="Document preview"
+                          className="max-h-full max-w-full rounded-lg object-contain"
+                        />
+                      </div>
+                    )
+                  ) : (
+                    <div className="flex h-[500px] items-center justify-center text-slate-500">
+                      Preparing preview...
                     </div>
                   )}
                 </div>
